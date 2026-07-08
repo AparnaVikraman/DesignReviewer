@@ -44,7 +44,9 @@ SAMPLE_METADATA = ReviewMetadata(
 def test_health():
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert "reviews_total" in body
 
 
 @patch("app.main.review_design")
@@ -65,7 +67,11 @@ def test_review_endpoint(mock_review_design):
     assert body["metadata"]["latency_ms"] == 42.0
     assert body["metadata"]["token_usage"]["total_tokens"] == 300
     assert body["review"]["confidence"] == 0.9
-    mock_review_design.assert_called_once_with(SAMPLE_DOC, use_retrieval=True)
+    mock_review_design.assert_called_once()
+    kwargs = mock_review_design.call_args.kwargs
+    assert kwargs["use_retrieval"] is True
+    assert kwargs["source_document_id"] is None
+    assert kwargs["source_filename"] is None
 
 
 @patch("app.main.review_design")
@@ -83,7 +89,9 @@ def test_review_endpoint_without_retrieval(mock_review_design):
     )
 
     assert response.status_code == 200
-    mock_review_design.assert_called_once_with(SAMPLE_DOC, use_retrieval=False)
+    mock_review_design.assert_called_once()
+    kwargs = mock_review_design.call_args.kwargs
+    assert kwargs["use_retrieval"] is False
 
 
 @patch("app.main.stream_review_design")
@@ -128,11 +136,53 @@ def test_review_stream_endpoint(mock_stream_review_design):
     assert events[-1]["data"]["metadata"]["latency_ms"] == 42.0
     assert events[-1]["data"]["metadata"]["model"] == "gpt-4.1-mini"
     assert events[-1]["data"]["review"]["confidence"] == 0.9
-    mock_stream_review_design.assert_called_once_with(
-        SAMPLE_DOC, use_retrieval=True
+    mock_stream_review_design.assert_called_once()
+    kwargs = mock_stream_review_design.call_args.kwargs
+    assert kwargs["use_retrieval"] is True
+
+
+def test_upload_documents_requires_files():
+    response = client.post("/documents", files=[])
+    assert response.status_code == 422
+
+
+@patch("app.main.resolve_review_input")
+@patch("app.main.review_design")
+def test_review_by_document_id(mock_review_design, mock_resolve):
+    from app.models import ReviewResponse
+    from app.review_input import ResolvedReviewInput
+
+    mock_resolve.return_value = ResolvedReviewInput(
+        design_doc=SAMPLE_DOC,
+        source_document_id="550e8400-e29b-41d4-a716-446655440000",
+        source_filename="order_service_design.md",
+    )
+    mock_review_design.return_value = ReviewResponse(
+        review=SAMPLE_REVIEW,
+        request_id="req-doc",
+        validation_path="direct",
+        metadata=SAMPLE_METADATA,
     )
 
+    response = client.post(
+        "/review",
+        json={"document_id": "550e8400-e29b-41d4-a716-446655440000"},
+    )
 
-def test_review_requires_design_doc():
+    assert response.status_code == 200
+    mock_review_design.assert_called_once()
+    kwargs = mock_review_design.call_args.kwargs
+    assert kwargs["source_document_id"] == "550e8400-e29b-41d4-a716-446655440000"
+    assert kwargs["source_filename"] == "order_service_design.md"
+    assert "request_id" in kwargs
+
+
+def test_review_requires_single_input_source():
     response = client.post("/review", json={})
+    assert response.status_code == 422
+
+    response = client.post(
+        "/review",
+        json={"design_doc": "test", "filename": "order.md"},
+    )
     assert response.status_code == 422

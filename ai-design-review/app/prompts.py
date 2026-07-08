@@ -31,8 +31,7 @@ DEFAULT_RAG_TEMPLATE = """
 You are a Principal Software Engineer reviewing a backend system design.
 
 Review the design below. Use the relevant engineering guidance to ground your review.
-Reference specific guidance documents when applicable (e.g., retry strategy, Kafka
-best practices, API guidelines, observability standards).
+Reference specific guidance documents when applicable.
 
 Return a JSON object with:
 - confidence: your confidence in the assessment (0.0 to 1.0)
@@ -44,14 +43,13 @@ Return a JSON object with:
   - priority: low, medium, high, or critical
   - summary: specific issue, risk, or gap for that category
   - citations: list of guidance sources that support this finding. Each citation must
-    include source_file (exact filename from the guidance sections below) and title
-    (section title from that guidance). Use one or more citations when the finding is
-    grounded in retrieved guidance; use an empty list only when based on general
-    engineering knowledge.
+    include source_file, title, page_number, and chunk_number exactly as shown in the
+    guidance sections below. Use one or more citations when the finding is grounded in
+    retrieved guidance; use an empty list only when based on general engineering knowledge.
 
 Include a finding for every category where you identify an issue. Do not collapse
-multiple categories into a single finding. Prefer citing specific guidance documents
-when they apply.
+multiple categories into a single finding. Prefer citing specific guidance with page
+and chunk numbers so retrieval is explainable.
 
 Relevant engineering guidance:
 {guidance_sections}
@@ -106,6 +104,8 @@ class PromptBuilder:
                 f"-------------\n"
                 f"source_file: {chunk.source_file}\n"
                 f"title: {label}\n"
+                f"page_number: {chunk.page_number}\n"
+                f"chunk_number: {chunk.chunk_number}\n"
                 f"-------------\n"
                 f"{chunk.content.strip()}\n"
             )

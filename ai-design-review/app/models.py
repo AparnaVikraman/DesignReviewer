@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Category(str, Enum):
@@ -24,6 +24,8 @@ class Priority(str, Enum):
 class Citation(BaseModel):
     source_file: str = Field(min_length=1)
     title: str = ""
+    page_number: int | None = None
+    chunk_number: int | None = None
 
 
 class Finding(BaseModel):
@@ -41,8 +43,23 @@ class DesignReview(BaseModel):
 
 
 class ReviewRequest(BaseModel):
-    design_doc: str = Field(min_length=1)
+    design_doc: str | None = None
+    document_id: str | None = None
+    filename: str | None = None
     use_retrieval: bool = True
+
+    @model_validator(mode="after")
+    def validate_input_source(self) -> Self:
+        provided = 0
+        if self.design_doc is not None:
+            provided += 1
+        if self.document_id is not None and str(self.document_id).strip():
+            provided += 1
+        if self.filename is not None and str(self.filename).strip():
+            provided += 1
+        if provided != 1:
+            raise ValueError("Provide exactly one of: design_doc, document_id, or filename")
+        return self
 
 
 class RetrievedChunk(BaseModel):
@@ -50,7 +67,20 @@ class RetrievedChunk(BaseModel):
     title: str
     content: str
     score: float
-    chunk_index: int
+    page_number: int
+    chunk_number: int
+
+
+class DocumentRecord(BaseModel):
+    document_id: str
+    filename: str
+    format: str
+    page_count: int
+    chunk_count: int
+
+
+class DocumentUploadResponse(BaseModel):
+    documents: list[DocumentRecord]
 
 
 class TokenUsage(BaseModel):
@@ -59,12 +89,30 @@ class TokenUsage(BaseModel):
     total_tokens: int
 
 
+class LatencyBreakdown(BaseModel):
+    embedding_ms: float | None = None
+    retrieval_ms: float | None = None
+    llm_ms: float | None = None
+    total_ms: float
+
+
 class ReviewMetadata(BaseModel):
     model: str
     latency_ms: float
+    latency: LatencyBreakdown | None = None
     token_usage: TokenUsage | None = None
+    estimated_cost_usd: float | None = None
     retrieval_enabled: bool = False
     retrieved_chunks: list[RetrievedChunk] = Field(default_factory=list)
+    source_document_id: str | None = None
+    source_filename: str | None = None
+
+
+class ErrorResponse(BaseModel):
+    error: str
+    error_type: str
+    request_id: str
+    retryable: bool = False
 
 
 class ReviewResponse(BaseModel):
